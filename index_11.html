@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>BONAM RADIO — DEALER TRACKING RELAY</title>
+<meta name="description" content="SIGNAL LIBERATED FROM MINISTRY FEED — LIVE DEALER POSITION — CAPTIVE 14.07">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root{
+    --red:#BE1826;
+    --green:#26D296;
+    --cyan:#417890;
+    --black:#050605;
+    --ink:#C9D2CC;
+    --dim:#4E5A54;
+    --line:rgba(38,210,150,0.22);
+    --panel:rgba(5,6,5,0.88);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;background:var(--black);color:var(--ink);
+    font-family:'IBM Plex Mono',monospace;overflow:hidden;}
+  button,input,textarea{font-family:'IBM Plex Mono',monospace;}
+
+  /* ================= MAP AS INTERCEPTED FEED ================= */
+  #map{position:fixed;inset:0;background:var(--black);z-index:1;}
+  .leaflet-tile-pane{
+    filter:grayscale(1) invert(1) brightness(0.55) contrast(1.3) sepia(0.4) hue-rotate(105deg) saturate(0.6);
+  }
+  .leaflet-control-attribution{background:rgba(5,6,5,0.75)!important;color:var(--dim)!important;
+    font-family:'IBM Plex Mono',monospace;font-size:8px!important;}
+  .leaflet-control-attribution a{color:var(--dim)!important;}
+  .leaflet-control-zoom{border:1px solid var(--line)!important;box-shadow:none!important;}
+  .leaflet-control-zoom a{background:var(--panel)!important;color:var(--green)!important;
+    border-bottom:1px solid var(--line)!important;}
+  .leaflet-top{top:62px;}
+
+  /* feed grain */
+  .scanlines{position:fixed;inset:0;z-index:2;pointer-events:none;
+    background:repeating-linear-gradient(0deg,rgba(0,0,0,0.18) 0 1px,transparent 1px 3px);
+    mix-blend-mode:multiply;}
+  .vignette{position:fixed;inset:0;z-index:2;pointer-events:none;
+    background:radial-gradient(ellipse at center,transparent 52%,rgba(0,0,0,0.6) 100%);}
+  .noise{position:fixed;inset:0;z-index:2;pointer-events:none;opacity:0.05;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.9'/%3E%3C/svg%3E");}
+
+  /* ================= HEADER — STATION ID ================= */
+  header{position:fixed;top:0;left:0;right:0;z-index:5;height:54px;
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:0 14px;background:var(--panel);border-bottom:1px solid var(--line);
+    backdrop-filter:blur(4px);}
+  .station{display:flex;align-items:center;gap:10px;min-width:0;}
+  .head-copy{display:flex;flex-direction:column;gap:2px;min-width:0;}
+  .subline{font-size:8.5px;letter-spacing:0.14em;color:var(--green);
+    text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .live{width:9px;height:9px;border-radius:50%;background:var(--red);flex:none;
+    box-shadow:0 0 8px rgba(190,24,38,0.9);animation:breathe 2.2s ease-in-out infinite;}
+  @keyframes breathe{0%,100%{opacity:1;}50%{opacity:0.25;}}
+  .station-id{font-weight:700;font-size:15px;letter-spacing:0.22em;color:#fff;
+    text-shadow:0 0 6px rgba(190,24,38,0.85),0 0 18px rgba(190,24,38,0.5);
+    white-space:nowrap;position:relative;animation:glitch 7s steps(1) infinite;}
+  @keyframes glitch{
+    0%,96.5%,100%{transform:none;text-shadow:0 0 6px rgba(190,24,38,0.85),0 0 18px rgba(190,24,38,0.5);}
+    97%{transform:translateX(-2px) skewX(-8deg);text-shadow:2px 0 var(--cyan),-2px 0 var(--red);}
+    97.6%{transform:translateX(2px);text-shadow:-2px 0 var(--green),2px 0 var(--red);}
+    98.2%{transform:none;}
+  }
+  .head-right{display:flex;align-items:center;gap:12px;flex:none;}
+  .tune{padding:7px 12px;cursor:pointer;background:transparent;
+    border:1px solid var(--red);color:var(--red);
+    font-size:10px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;
+    transition:background 0.15s,color 0.15s;white-space:nowrap;}
+  .tune:hover{background:rgba(190,24,38,0.12);}
+  .tune:focus-visible{outline:2px solid var(--red);outline-offset:2px;}
+  .tune.playing{background:var(--red);color:#fff;
+    box-shadow:0 0 12px rgba(190,24,38,0.55);}
+  .freq{font-size:9px;letter-spacing:0.18em;color:var(--dim);text-transform:uppercase;text-align:right;line-height:1.5;}
+  .freq b{color:var(--green);font-weight:600;}
+
+  /* ================= PANEL ================= */
+  .panel{position:fixed;top:60px;left:12px;z-index:5;width:292px;max-height:calc(100% - 118px);
+    display:flex;flex-direction:column;background:var(--panel);
+    border:1px solid var(--line);backdrop-filter:blur(4px);overflow:hidden;}
+  .panel-head{flex:none;display:flex;justify-content:space-between;align-items:center;
+    padding:8px 12px;border-bottom:1px solid var(--line);
+    font-size:9.5px;font-weight:600;letter-spacing:0.24em;text-transform:uppercase;color:var(--green);}
+  .panel-head .tag{color:var(--red);}
+  .panel-scroll{overflow-y:auto;}
+  .panel-body{padding:10px 12px;display:grid;gap:7px;font-size:11.5px;}
+  .row{display:flex;justify-content:space-between;gap:10px;align-items:baseline;}
+  .k{color:var(--dim);letter-spacing:0.08em;text-transform:uppercase;font-size:9px;}
+  .v{text-align:right;font-weight:500;color:var(--ink);}
+  .v.red{color:var(--red);font-weight:600;}
+  .v.green{color:var(--green);}
+  #status{font-weight:700;letter-spacing:0.1em;}
+  #status.active{color:var(--green);text-shadow:0 0 8px rgba(38,210,150,0.5);}
+  #status.degraded{color:var(--cyan);}
+  #status.lost{color:var(--red);}
+  .divider{border-top:1px dashed var(--line);margin:3px 0;}
+
+  /* buttons */
+  .btn{display:block;width:100%;padding:10px 8px;margin-top:2px;cursor:pointer;
+    background:transparent;border:1px solid var(--line);color:var(--green);
+    font-size:11px;font-weight:600;letter-spacing:0.18em;text-transform:uppercase;
+    transition:background 0.15s,color 0.15s,border-color 0.15s;}
+  .btn:hover:not(:disabled){background:rgba(38,210,150,0.1);}
+  .btn:focus-visible{outline:2px solid var(--green);outline-offset:2px;}
+  .btn:disabled{color:var(--dim);border-color:rgba(78,90,84,0.35);cursor:not-allowed;}
+  .btn.deliver{border-color:var(--red);color:var(--red);}
+  .btn.deliver.armed{background:var(--red);color:#fff;
+    box-shadow:0 0 14px rgba(190,24,38,0.55);animation:arm 1.8s ease-in-out infinite;}
+  @keyframes arm{0%,100%{box-shadow:0 0 8px rgba(190,24,38,0.4);}50%{box-shadow:0 0 20px rgba(190,24,38,0.8);}}
+  .btn.deliver.armed:hover{background:#d41f2f;}
+  .range-note{font-size:9px;color:var(--dim);letter-spacing:0.06em;text-align:center;
+    text-transform:uppercase;min-height:1.2em;}
+  .range-note.ok{color:var(--green);}
+  .range-note.far{color:var(--red);}
+
+  /* transmit form */
+  .form{display:none;grid-template-columns:1fr;gap:6px;padding-top:2px;}
+  .form.open{display:grid;}
+  .form input,.form textarea{width:100%;padding:8px;background:rgba(38,210,150,0.05);
+    border:1px solid var(--line);color:var(--ink);font-size:12px;resize:none;}
+  .form input::placeholder,.form textarea::placeholder{color:var(--dim);font-size:10px;
+    letter-spacing:0.08em;text-transform:uppercase;}
+  .form input:focus,.form textarea:focus{outline:none;border-color:var(--green);}
+  .form .hint{font-size:8.5px;color:var(--dim);letter-spacing:0.05em;text-transform:uppercase;}
+
+  /* ================= TRANSMISSION LOG ================= */
+  .tlog{position:fixed;left:12px;right:12px;bottom:12px;z-index:5;
+    padding:8px 12px 9px;background:var(--panel);border:1px solid var(--line);
+    backdrop-filter:blur(4px);font-size:10px;line-height:1.75;color:var(--green);
+    max-height:96px;overflow:hidden;}
+  .tlog-title{font-size:8.5px;letter-spacing:0.24em;color:var(--dim);text-transform:uppercase;margin-bottom:2px;}
+  .tlog .ts{color:var(--dim);}
+  .tlog .warn{color:var(--red);}
+  .tlog .info{color:var(--cyan);}
+
+  /* ================= MARKERS ================= */
+  .target{position:relative;width:64px;height:64px;}
+  .target .ring{position:absolute;inset:0;border:1.5px solid var(--red);border-radius:50%;
+    animation:ping 2.4s cubic-bezier(0,0,0.2,1) infinite;}
+  .target .ring.r2{animation-delay:1.2s;}
+  @keyframes ping{0%{transform:scale(0.25);opacity:0.9;}80%,100%{transform:scale(1);opacity:0;}}
+  .target .core{position:absolute;left:50%;top:50%;width:9px;height:9px;
+    transform:translate(-50%,-50%);background:var(--red);border-radius:50%;
+    box-shadow:0 0 12px rgba(190,24,38,1);}
+  .target .lbl{position:absolute;left:50%;top:calc(100% - 8px);transform:translateX(-50%);
+    font-size:8px;font-weight:700;letter-spacing:0.2em;color:var(--red);white-space:nowrap;
+    text-shadow:0 0 6px rgba(190,24,38,0.7);}
+  .target.lost .ring{animation:none;opacity:0;}
+  .target.lost .core{background:var(--dim);box-shadow:none;}
+  .target.lost .lbl{color:var(--dim);text-shadow:none;}
+
+  .me{position:relative;width:22px;height:22px;}
+  .me .dot{position:absolute;left:50%;top:50%;width:8px;height:8px;
+    transform:translate(-50%,-50%);background:var(--green);border-radius:50%;
+    box-shadow:0 0 10px rgba(38,210,150,0.9);}
+  .me .halo{position:absolute;inset:0;border:1px solid var(--green);border-radius:50%;opacity:0.5;}
+
+  /* ================= MOBILE ================= */
+  @media (max-width:600px){
+    .station-id{font-size:11px;letter-spacing:0.1em;}
+    .subline{font-size:7px;letter-spacing:0.08em;}
+    .freq{display:none;}
+    .tune{padding:6px 9px;font-size:9px;}
+    .leaflet-top{top:58px;}
+    .panel{top:auto;bottom:10px;left:8px;right:8px;width:auto;max-height:62vh;}
+    .tlog{display:none;}
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    .target .ring{animation:none;display:none;}
+    .live,.station-id,.btn.deliver.armed{animation:none;}
+  }
+</style>
+</head>
+<body>
+
+<div id="map" role="application" aria-label="Live dealer tracking map"></div>
+<div class="scanlines"></div>
+<div class="noise"></div>
+<div class="vignette"></div>
+
+<header>
+  <div class="station">
+    <span class="live" aria-hidden="true"></span>
+    <div class="head-copy">
+      <span class="station-id">SAME-DAY&nbsp;BASS&nbsp;DELIVERY</span>
+      <span class="subline">Track the dealer. Get in range. Contraband delivered by hand.</span>
+    </div>
+  </div>
+  <div class="head-right">
+    <button class="tune" id="tuneBtn" hidden>&#9654;&nbsp;Tune In</button>
+    <div class="freq"><b>CAPTIVE 14.07</b></div>
+  </div>
+</header>
+
+<aside class="panel">
+  <div class="panel-head"><span>Dealer Position</span><span class="tag">Unit 74/183</span></div>
+  <div class="panel-scroll"><div class="panel-body" aria-live="polite">
+    <div class="row"><span class="k">Alias</span><span class="v red">BONAM</span></div>
+    <div class="row"><span class="k">Cargo</span><span class="v">Audio Contraband</span></div>
+    <div class="row"><span class="k">Signal</span><span class="v" id="status">ACQUIRING…</span></div>
+    <div class="row"><span class="k">Last Intercept</span><span class="v" id="age">—</span></div>
+    <div class="row"><span class="k">Grid Ref</span><span class="v" id="coords">—</span></div>
+    <div class="row"><span class="k">Your Distance</span><span class="v" id="dist">UNKNOWN</span></div>
+    <div class="divider"></div>
+
+    <button class="btn" id="locateBtn">Locate Me</button>
+    <button class="btn deliver" id="deliverBtn" disabled>Request Delivery</button>
+    <div class="range-note" id="rangeNote">Locate yourself to check range</div>
+
+    <div class="form" id="deliverForm">
+      <input id="dHandle" maxlength="24" placeholder="Your handle / citizen name" autocomplete="off">
+      <textarea id="dText" rows="2" maxlength="240" placeholder="Where exactly are you? What are you wearing?"></textarea>
+      <button class="btn deliver armed" id="dSend">Send Delivery Request</button>
+      <div class="hint">Your position is transmitted to the dealer. Nobody else.</div>
+    </div>
+
+    <div class="divider"></div>
+    <button class="btn" id="txBtn">Transmit to Dealer</button>
+    <div class="form" id="txForm">
+      <input id="tHandle" maxlength="24" placeholder="Your handle" autocomplete="off">
+      <textarea id="tText" rows="2" maxlength="240" placeholder="Message the dealer…"></textarea>
+      <button class="btn" id="tSend">Transmit</button>
+      <div class="hint">One transmission per minute. The Ministry is listening.</div>
+    </div>
+  </div></div>
+</aside>
+
+<div class="tlog" aria-hidden="true">
+  <div class="tlog-title">Transmission Log</div>
+  <div id="log"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ======================= CONFIG =======================
+   WORKER_BASE : your Cloudflare Worker URL, no trailing slash
+   DEMO        : leave true until the Worker is live         */
+const CONFIG = {
+  WORKER_BASE: "https://YOUR-WORKER.YOUR-SUBDOMAIN.workers.dev",
+  AUDIO_URL: "",          // R2 public URL of tctts.mp3 — leave "" for no music
+  DEMO: true,
+  POLL_MS: 30000,          // page checks dealer position every 30s
+  DELIVERY_RADIUS_M: 1500, // how close a citizen must be to request delivery
+  DEGRADED_AFTER_MIN: 6,
+  LOST_AFTER_MIN: 20,
+  DEMO_POS: [51.5837, -0.0195]
+};
+/* ====================================================== */
+
+const $ = id => document.getElementById(id);
+
+/* ---------- map ---------- */
+const map = L.map('map',{zoomControl:true}).setView(CONFIG.DEMO_POS, 15);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+  {maxZoom:19, attribution:'&copy; OpenStreetMap'}).addTo(map);
+
+const dealerIcon = L.divIcon({className:'',iconSize:[64,64],iconAnchor:[32,32],
+  html:`<div class="target" id="tgt">
+          <div class="ring"></div><div class="ring r2"></div>
+          <div class="core"></div><div class="lbl">DEALER</div>
+        </div>`});
+const dealer = L.marker(CONFIG.DEMO_POS,{icon:dealerIcon}).addTo(map);
+const zone = L.circle(CONFIG.DEMO_POS,{radius:CONFIG.DELIVERY_RADIUS_M,
+  color:'#26D296',weight:1,opacity:0.4,fillColor:'#26D296',fillOpacity:0.04,dashArray:'4 8'}).addTo(map);
+
+const meIcon = L.divIcon({className:'',iconSize:[22,22],iconAnchor:[11,11],
+  html:'<div class="me"><div class="halo"></div><div class="dot"></div></div>'});
+let meMarker = null;
+
+/* ---------- state ---------- */
+let dealerPos = null, lastTs = null, myPos = null, followed = false;
+let logLines = [];
+
+/* ---------- log ---------- */
+function log(msg, cls){
+  const t = new Date().toTimeString().slice(0,8);
+  logLines.push(`<span class="ts">[${t}]</span> <span class="${cls||''}">${msg}</span>`);
+  if(logLines.length > 4) logLines.shift();
+  $('log').innerHTML = logLines.join('<br>');
+}
+
+/* ---------- helpers ---------- */
+function haversine(a, b){
+  const R=6371000, toR=x=>x*Math.PI/180;
+  const dLat=toR(b[0]-a[0]), dLon=toR(b[1]-a[1]);
+  const h=Math.sin(dLat/2)**2 + Math.cos(toR(a[0]))*Math.cos(toR(b[0]))*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+function fmtCoords(lat,lon){
+  return Math.abs(lat).toFixed(4)+'°'+(lat>=0?'N':'S')+' '+Math.abs(lon).toFixed(4)+'°'+(lon>=0?'E':'W');
+}
+function fmtDist(m){ return m<1000 ? Math.round(m)+'M' : (m/1000).toFixed(1)+'KM'; }
+
+function setStatus(state,label){
+  const s=$('status'); s.className=state; s.textContent=label;
+  const t=document.getElementById('tgt'); if(t) t.classList.toggle('lost', state==='lost');
+}
+function updateAge(){
+  if(!lastTs){ $('age').textContent='—'; return; }
+  const mins=(Date.now()-lastTs)/60000;
+  $('age').textContent = mins<1 ? '<1 MIN AGO' : Math.round(mins)+' MIN AGO';
+  if(mins>=CONFIG.LOST_AFTER_MIN) setStatus('lost','SIGNAL LOST');
+  else if(mins>=CONFIG.DEGRADED_AFTER_MIN) setStatus('degraded','SIGNAL DEGRADED');
+  else setStatus('active','SIGNAL ACTIVE');
+}
+
+/* ---------- proximity / delivery gate ---------- */
+function updateRange(){
+  if(!myPos || !dealerPos) return;
+  const d = haversine(myPos, dealerPos);
+  $('dist').textContent = fmtDist(d);
+  const note=$('rangeNote'), btn=$('deliverBtn');
+  if(d <= CONFIG.DELIVERY_RADIUS_M){
+    btn.disabled=false; btn.classList.add('armed');
+    note.className='range-note ok'; note.textContent='IN RANGE — DELIVERY AVAILABLE';
+    $('dist').className='v green';
+  } else {
+    btn.disabled=true; btn.classList.remove('armed');
+    note.className='range-note far';
+    note.textContent='OUT OF RANGE — '+fmtDist(d - CONFIG.DELIVERY_RADIUS_M)+' TOO FAR';
+    $('dist').className='v red';
+  }
+}
+
+/* ---------- dealer position ---------- */
+function applyFix(lat,lon,ts){
+  dealerPos=[lat,lon];
+  dealer.setLatLng(dealerPos); zone.setLatLng(dealerPos);
+  $('coords').textContent=fmtCoords(lat,lon);
+  lastTs = ts || Date.now();
+  updateAge(); updateRange();
+  if(!followed){ map.setView(dealerPos,15); followed=true; }
+  log('Intercept decoded. Dealer position updated.');
+}
+
+async function poll(){
+  if(CONFIG.DEMO){
+    applyFix(CONFIG.DEMO_POS[0],CONFIG.DEMO_POS[1],Date.now());
+    log('DEMO FEED — relay not yet connected.','info');
+    return;
+  }
+  try{
+    const r = await fetch(CONFIG.WORKER_BASE+'/location',{cache:'no-store'});
+    if(!r.ok) throw 0;
+    const d = await r.json();
+    if(d && typeof d.lat==='number' && typeof d.lon==='number'){
+      applyFix(d.lat, d.lon, d.ts ? new Date(d.ts).getTime() : Date.now());
+    } else throw 0;
+  }catch(e){
+    log('Relay unreachable. Retrying…','warn');
+    updateAge();
+    if(!lastTs) setStatus('lost','NO SIGNAL');
+  }
+}
+
+/* ---------- locate me ---------- */
+$('locateBtn').addEventListener('click',()=>{
+  if(!navigator.geolocation){ log('Positioning unavailable on this device.','warn'); return; }
+  $('locateBtn').textContent='LOCATING…'; $('locateBtn').disabled=true;
+  navigator.geolocation.getCurrentPosition(p=>{
+    myPos=[p.coords.latitude, p.coords.longitude];
+    if(meMarker) meMarker.setLatLng(myPos);
+    else meMarker=L.marker(myPos,{icon:meIcon}).addTo(map);
+    if(dealerPos) map.fitBounds(L.latLngBounds([myPos,dealerPos]).pad(0.25));
+    $('locateBtn').textContent='RELOCATE'; $('locateBtn').disabled=false;
+    log('Citizen position fixed.');
+    updateRange();
+  },err=>{
+    $('locateBtn').textContent='LOCATE ME'; $('locateBtn').disabled=false;
+    log('Position denied. Enable location to check range.','warn');
+    $('rangeNote').className='range-note far';
+    $('rangeNote').textContent='LOCATION ACCESS NEEDED FOR DELIVERY';
+  },{enableHighAccuracy:true, timeout:12000, maximumAge:30000});
+});
+
+/* ---------- forms ---------- */
+$('deliverBtn').addEventListener('click',()=>{
+  $('deliverForm').classList.toggle('open');
+});
+$('txBtn').addEventListener('click',()=>{
+  $('txForm').classList.toggle('open');
+});
+
+async function send(kind, handle, text, btn){
+  if(!text.trim()){ log('Empty transmission blocked.','warn'); return; }
+  if(CONFIG.DEMO){ log('DEMO — relay not connected, nothing sent.','info'); return; }
+  const orig=btn.textContent;
+  btn.textContent='TRANSMITTING…'; btn.disabled=true;
+  const body={ kind, handle:handle.trim()||'ANON', text:text.trim() };
+  if(myPos){ body.lat=myPos[0]; body.lon=myPos[1];
+    if(dealerPos) body.dist=Math.round(haversine(myPos,dealerPos)); }
+  try{
+    const r=await fetch(CONFIG.WORKER_BASE+'/message',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(body)});
+    const d=await r.json().catch(()=>({}));
+    if(r.status===429){ log('Rate limited. One transmission per minute.','warn'); }
+    else if(r.ok && d.ok){
+      log(kind==='DELIVERY' ? 'Delivery request transmitted. Hold position.' : 'Transmission received by dealer.');
+      if(kind==='DELIVERY'){ $('dText').value=''; $('deliverForm').classList.remove('open'); }
+      else { $('tText').value=''; $('txForm').classList.remove('open'); }
+    } else { log('Transmission failed. Try again.','warn'); }
+  }catch(e){ log('Relay unreachable.','warn'); }
+  btn.textContent=orig; btn.disabled=false;
+}
+
+$('dSend').addEventListener('click',()=>{
+  if(!myPos){ log('Locate yourself first.','warn'); return; }
+  send('DELIVERY', $('dHandle').value, $('dText').value, $('dSend'));
+});
+$('tSend').addEventListener('click',()=>{
+  send('TRANSMISSION', $('tHandle').value, $('tText').value, $('tSend'));
+});
+
+/* ---------- audio ---------- */
+if(CONFIG.AUDIO_URL){
+  const tune=$('tuneBtn');
+  tune.hidden=false;
+  const audio=new Audio(CONFIG.AUDIO_URL);
+  audio.loop=true; audio.preload='none';
+  tune.addEventListener('click',async()=>{
+    if(audio.paused){
+      try{
+        await audio.play();
+        tune.classList.add('playing');
+        tune.innerHTML='&#9632;&nbsp;On Air';
+        log('Too Close to the Sun — broadcasting.','info');
+      }catch(e){ log('Playback blocked by browser.','warn'); }
+    }else{
+      audio.pause();
+      tune.classList.remove('playing');
+      tune.innerHTML='&#9654;&nbsp;Tune In';
+      log('Broadcast paused.');
+    }
+  });
+}
+
+/* ---------- boot ---------- */
+log('BONAM RADIO relay online.');
+log('Ministry tracker feed intercepted.','info');
+poll();
+setInterval(poll, CONFIG.POLL_MS);
+setInterval(updateAge, 15000);
+</script>
+</body>
+</html>
