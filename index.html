@@ -161,6 +161,22 @@
     box-shadow:0 0 10px rgba(38,210,150,0.9);}
   .me .halo{position:absolute;inset:0;border:1px solid var(--green);border-radius:50%;opacity:0.5;}
 
+  /* ================= TRANSMISSION LOST ================= */
+  .txlost{position:fixed;inset:0;z-index:4;display:none;
+    align-items:center;justify-content:center;flex-direction:column;gap:10px;
+    background:rgba(5,6,5,0.55);pointer-events:none;text-align:center;padding:0 20px;}
+  .txlost.show{display:flex;}
+  .txlost .big{font-size:26px;font-weight:700;letter-spacing:0.3em;color:var(--red);
+    text-shadow:0 0 12px rgba(190,24,38,0.8),0 0 40px rgba(190,24,38,0.4);
+    animation:txflicker 3.2s steps(1) infinite;}
+  @keyframes txflicker{
+    0%,91%,100%{opacity:1;}
+    92%{opacity:0.4;} 93.5%{opacity:1;} 96%{opacity:0.55;} 97%{opacity:1;}
+  }
+  .txlost .sub{font-size:10px;letter-spacing:0.22em;color:var(--ink);opacity:0.8;text-transform:uppercase;}
+  @media (max-width:600px){ .txlost .big{font-size:18px;letter-spacing:0.22em;} }
+  @media (prefers-reduced-motion:reduce){ .txlost .big{animation:none;} }
+
   /* ================= MOBILE ================= */
   @media (max-width:600px){
     .station-id{font-size:11px;letter-spacing:0.1em;}
@@ -232,6 +248,11 @@
   </div></div>
 </aside>
 
+<div class="txlost" id="txlost" aria-live="assertive">
+  <div class="big">TRANSMISSION&nbsp;LOST</div>
+  <div class="sub">Dealer signal not detected · Hold this frequency</div>
+</div>
+
 <div class="tlog" aria-hidden="true">
   <div class="tlog-title">Transmission Log</div>
   <div id="log"></div>
@@ -249,7 +270,7 @@ const CONFIG = {
   POLL_MS: 30000,          // page checks dealer position every 30s
   DELIVERY_RADIUS_M: 1500, // how close a citizen must be to request delivery
   DEGRADED_AFTER_MIN: 6,
-  LOST_AFTER_MIN: 20,
+  LOST_AFTER_MIN: 12,
   DEMO_POS: [51.5837, -0.0195]
 };
 /* ====================================================== */
@@ -298,6 +319,34 @@ function fmtCoords(lat,lon){
 }
 function fmtDist(m){ return m<1000 ? Math.round(m)+'M' : (m/1000).toFixed(1)+'KM'; }
 
+let dealerHidden = false;
+
+function blackout(label){
+  if(!dealerHidden){
+    if(map.hasLayer(dealer)) map.removeLayer(dealer);
+    if(map.hasLayer(zone)) map.removeLayer(zone);
+    dealerHidden = true;
+  }
+  document.getElementById('txlost').classList.add('show');
+  setStatus('lost', label);
+  $('coords').textContent = '—';
+  $('dist').textContent = 'UNKNOWN'; $('dist').className = 'v';
+  const btn = $('deliverBtn');
+  btn.disabled = true; btn.classList.remove('armed');
+  const note = $('rangeNote');
+  note.className = 'range-note far';
+  note.textContent = 'SIGNAL LOST — DELIVERY UNAVAILABLE';
+}
+
+function restore(){
+  if(dealerHidden){
+    dealer.addTo(map); zone.addTo(map);
+    dealerHidden = false;
+    log('Dealer signal reacquired.', 'info');
+  }
+  document.getElementById('txlost').classList.remove('show');
+}
+
 function setStatus(state,label){
   const s=$('status'); s.className=state; s.textContent=label;
   const t=document.getElementById('tgt'); if(t) t.classList.toggle('lost', state==='lost');
@@ -306,14 +355,14 @@ function updateAge(){
   if(!lastTs){ $('age').textContent='—'; return; }
   const mins=(Date.now()-lastTs)/60000;
   $('age').textContent = mins<1 ? '<1 MIN AGO' : Math.round(mins)+' MIN AGO';
-  if(mins>=CONFIG.LOST_AFTER_MIN) setStatus('lost','SIGNAL LOST');
-  else if(mins>=CONFIG.DEGRADED_AFTER_MIN) setStatus('degraded','SIGNAL DEGRADED');
-  else setStatus('active','SIGNAL ACTIVE');
+  if(mins>=CONFIG.LOST_AFTER_MIN){ blackout('SIGNAL LOST'); }
+  else if(mins>=CONFIG.DEGRADED_AFTER_MIN){ restore(); setStatus('degraded','SIGNAL DEGRADED'); }
+  else { restore(); setStatus('active','SIGNAL ACTIVE'); }
 }
 
 /* ---------- proximity / delivery gate ---------- */
 function updateRange(){
-  if(!myPos || !dealerPos) return;
+  if(!myPos || !dealerPos || dealerHidden) return;
   const d = haversine(myPos, dealerPos);
   $('dist').textContent = fmtDist(d);
   const note=$('rangeNote'), btn=$('deliverBtn');
@@ -335,6 +384,7 @@ function applyFix(lat,lon,ts){
   dealer.setLatLng(dealerPos); zone.setLatLng(dealerPos);
   $('coords').textContent=fmtCoords(lat,lon);
   lastTs = ts || Date.now();
+  restore();
   updateAge(); updateRange();
   if(!followed){ map.setView(dealerPos,15); followed=true; }
   log('Intercept decoded. Dealer position updated.');
@@ -352,11 +402,17 @@ async function poll(){
     const d = await r.json();
     if(d && typeof d.lat==='number' && typeof d.lon==='number'){
       applyFix(d.lat, d.lon, d.ts ? new Date(d.ts).getTime() : Date.now());
-    } else throw 0;
+    } else {
+      // relay reachable but holds no position: dealer has gone dark
+      lastTs = null; dealerPos = null;
+      $('age').textContent = '—';
+      blackout('NO SIGNAL');
+      log('Dealer has gone dark.','warnc');
+    }
   }catch(e){
     log('Relay unreachable. Retrying…','warn');
     updateAge();
-    if(!lastTs) setStatus('lost','NO SIGNAL');
+    if(!lastTs) blackout('NO SIGNAL');
   }
 }
 
