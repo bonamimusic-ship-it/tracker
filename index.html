@@ -232,7 +232,7 @@
 
     <div class="form" id="deliverForm">
       <input id="dHandle" maxlength="24" placeholder="Your handle / citizen name" autocomplete="off">
-      <textarea id="dText" rows="2" maxlength="240" placeholder="Where exactly are you? What are you wearing?"></textarea>
+      <textarea id="dText" rows="3" maxlength="240" placeholder="Where are you standing? What are you wearing? Leave your @ — delivery gets confirmed on Instagram."></textarea>
       <button class="btn deliver armed" id="dSend">Send Delivery Request</button>
       <div class="hint">Your position is transmitted to the dealer. Nobody else.</div>
     </div>
@@ -241,7 +241,7 @@
     <button class="btn" id="txBtn">Transmit to Dealer</button>
     <div class="form" id="txForm">
       <input id="tHandle" maxlength="24" placeholder="Your handle" autocomplete="off">
-      <textarea id="tText" rows="2" maxlength="240" placeholder="Message the dealer…"></textarea>
+      <textarea id="tText" rows="3" maxlength="240" placeholder="Message the dealer… leave your @ if you want word back."></textarea>
       <button class="btn" id="tSend">Transmit</button>
       <div class="hint">One transmission per minute. The Ministry is listening.</div>
     </div>
@@ -336,6 +336,9 @@ function blackout(label){
   const note = $('rangeNote');
   note.className = 'range-note far';
   note.textContent = 'SIGNAL LOST — DELIVERY UNAVAILABLE';
+  $('txBtn').disabled = true;
+  $('deliverForm').classList.remove('open');
+  $('txForm').classList.remove('open');
 }
 
 function restore(){
@@ -345,6 +348,7 @@ function restore(){
     log('Dealer signal reacquired.', 'info');
   }
   document.getElementById('txlost').classList.remove('show');
+  $('txBtn').disabled = false;
 }
 
 function setStatus(state,label){
@@ -458,6 +462,9 @@ async function send(kind, handle, text, btn){
       body:JSON.stringify(body)});
     const d=await r.json().catch(()=>({}));
     if(r.status===429){ log('Rate limited. One transmission per minute.','warn'); }
+    else if(r.status===403 && d.error==='DEALER_DARK'){
+      log('Dealer is dark. Transmissions refused until the signal returns.','warnc');
+    }
     else if(r.ok && d.ok){
       log(kind==='DELIVERY' ? 'Delivery request transmitted. Hold position.' : 'Transmission received by dealer.');
       if(kind==='DELIVERY'){ $('dText').value=''; $('deliverForm').classList.remove('open'); }
